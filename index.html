@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://upload.wikimedia.org/wikipedia/commons/4/47/React.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>萌兽大乱斗 - Farm Battler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html2canvas for poster generation -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+    <!-- TensorFlow.js and MobileNet (Local Model Requirement) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@1.0.0"></script>
+    
+    <style>
+      /* Import Cute Fonts */
+      @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=ZCOOL+KuaiLe&display=swap');
+      
+      body {
+        font-family: 'Fredoka', 'ZCOOL KuaiLe', cursive, sans-serif;
+        background-color: #f0f9ff; /* sky-50 */
+        color: #451a03; /* amber-950 */
+        background-image: linear-gradient(to bottom, #bae6fd 0%, #f0fdf4 100%); /* sky to green */
+        min-height: 100vh;
+      }
+
+      /* Cute Pattern Overlay (Polka dots or Gingham hint) */
+      .bg-farm-pattern {
+        background-image: radial-gradient(#60a5fa 1.5px, transparent 1.5px);
+        background-size: 24px 24px;
+        /* opacity removed here to prevent affecting children */
+      }
+
+      /* Wood Texture Helper */
+      .wood-texture {
+        background-color: #d97706;
+        background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2392400e' fill-opacity='0.1' fill-rule='evenodd'%3E%3Cpath d='M0 38.59l2.83-2.83 1.41 1.41L1.41 40H0v-1.41zM0 1.4l2.83 2.83 1.41-1.41L1.41 0H0v1.41zM38.59 40l-2.83-2.83 1.41-1.41L40 38.59V40h-1.41zM40 1.41l-2.83 2.83-1.41-1.41L38.59 0H40v1.41zM20 18.6l2.83-2.83 1.41 1.41L21.41 20l2.83 2.83-1.41 1.41L20 21.41l-2.83 2.83-1.41-1.41L18.59 20l-2.83-2.83 1.41-1.41L20 18.59z'/%3E%3C/g%3E%3C/svg%3E");
+      }
+
+      .font-cute {
+        font-family: 'ZCOOL KuaiLe', cursive;
+      }
+      
+      /* Custom Cute Scrollbar */
+      ::-webkit-scrollbar {
+        width: 10px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #fef3c7; 
+        border-radius: 5px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #f59e0b; 
+        border-radius: 5px;
+        border: 2px solid #fef3c7;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #d97706; 
+      }
+
+      /* --- BATTLE ANIMATIONS --- */
+      @keyframes shake {
+        0% { transform: translate(1px, 1px) rotate(0deg); }
+        10% { transform: translate(-1px, -2px) rotate(-1deg); }
+        20% { transform: translate(-3px, 0px) rotate(1deg); }
+        30% { transform: translate(3px, 2px) rotate(0deg); }
+        40% { transform: translate(1px, -1px) rotate(1deg); }
+        50% { transform: translate(-1px, 2px) rotate(-1deg); }
+        60% { transform: translate(-3px, 1px) rotate(0deg); }
+        70% { transform: translate(3px, 1px) rotate(-1deg); }
+        80% { transform: translate(-1px, -1px) rotate(1deg); }
+        90% { transform: translate(1px, 2px) rotate(0deg); }
+        100% { transform: translate(1px, -2px) rotate(-1deg); }
+      }
+      .animate-shake {
+        animation: shake 0.5s;
+      }
+
+      @keyframes floatUp {
+        0% { transform: translateY(0) scale(0.5); opacity: 0; }
+        20% { transform: translateY(-20px) scale(1.2); opacity: 1; }
+        80% { transform: translateY(-50px) scale(1); opacity: 0.8; }
+        100% { transform: translateY(-70px) scale(0.8); opacity: 0; }
+      }
+      .animate-float-damage {
+        animation: floatUp 1.2s ease-out forwards;
+      }
+      
+      @keyframes popIn {
+        0% { transform: scale(0.8); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+
+      /* --- FALLING ANIMATION --- */
+      @keyframes fall {
+        0% { transform: translateY(-50px) rotate(0deg); opacity: 0; }
+        10% { opacity: 0.8; }
+        100% { transform: translateY(110vh) rotate(360deg); opacity: 0; }
+      }
+      .animate-fall {
+        animation: fall linear infinite;
+      }
+
+      @keyframes wiggle {
+        0%, 100% { transform: rotate(-3deg); }
+        50% { transform: rotate(3deg); }
+      }
+      .animate-wiggle {
+        animation: wiggle 3s infinite ease-in-out;
+      }
+
+      @keyframes bounce-slow {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-15px); }
+      }
+      .animate-bounce-slow {
+        animation: bounce-slow 2.5s infinite ease-in-out;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
