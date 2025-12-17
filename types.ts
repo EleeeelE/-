@@ -45,3 +45,11 @@ export type LoadingState = 'idle' | 'analyzing' | 'generating' | 'complete' | 'e
 // battle_turn: players selecting moves
 // round_end: clearing cards
 export type GamePhase = 'setup' | 'upload' | 'battle_turn' | 'round_end' | 'gameover';
+
+// New Types for Fun Features
+export type WeatherType = 'sunny' | 'rain' | 'snow' | 'wind' | 'sandstorm';
+
+export interface BanterData {
+    p1Line: string;
+    p2Line: string;
+}

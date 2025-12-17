@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { generateAnimalCard, generateRandomBoss } from './services/geminiService';
+import { generateAnimalCard, generateRandomBoss, generateBattleBanter } from './services/geminiService';
 import { playSfx } from './services/audioService';
-import { AnimalData, LoadingState, Player, GamePhase, Move, SavedAnimal } from './types';
+import { AnimalData, LoadingState, Player, GamePhase, Move, SavedAnimal, WeatherType, BanterData } from './types';
 import { BattleCard } from './components/BattleCard';
 import { Spinner } from './components/Spinner';
 import { GameLog } from './components/GameLog';
@@ -32,8 +32,90 @@ const getMoveImageUrl = (move: Move) => {
     return `https://image.pollinations.ai/prompt/cute cartoon rpg skill effect, ${encodeURIComponent(move.visual_prompt)}?width=400&height=300&nologo=true&seed=${move.power}&model=flux`;
 };
 
-// Helper to calculate damage with Type Effectiveness
-const calculateDamage = (move: Move, attackerData: AnimalData, defenderData: AnimalData) => {
+// --- NEW DECORATION COMPONENTS ---
+
+const SpeechBubble = ({ text, isRight = false }: { text: string, isRight?: boolean }) => (
+    <div className={`absolute -top-32 md:-top-44 ${isRight ? '-left-8 md:-left-24' : '-right-8 md:-right-24'} z-[70] animate-in zoom-in slide-in-from-bottom-4 duration-500 w-64 md:w-96 filter drop-shadow-xl`}>
+        <div className={`relative bg-white p-6 rounded-[2rem] border-[6px] border-amber-800 text-center transform ${isRight ? 'rotate-2' : '-rotate-2'}`}>
+            <p className="font-black text-amber-900 font-cute text-xl md:text-3xl leading-snug tracking-wide">“{text}”</p>
+            {/* Tail */}
+            <div className={`absolute bottom-[-15px] w-0 h-0 border-l-[16px] border-r-[16px] border-t-[16px] border-l-transparent border-r-transparent border-t-amber-800 ${isRight ? 'right-10' : 'left-10'}`}></div>
+            <div className={`absolute bottom-[-7px] w-0 h-0 border-l-[10px] border-r-[10px] border-t-[10px] border-l-transparent border-r-transparent border-t-white ${isRight ? 'right-[44px]' : 'left-[44px]'}`}></div>
+        </div>
+    </div>
+);
+
+const WeatherOverlay = ({ type }: { type: WeatherType }) => {
+    if (type === 'sunny') return null;
+
+    let particles = [];
+    let icon = '';
+    let animClass = '';
+    
+    if (type === 'rain') {
+        icon = '💧';
+        animClass = 'animate-fall';
+    } else if (type === 'snow') {
+        icon = '❄️';
+        animClass = 'animate-fall opacity-80';
+    } else if (type === 'wind') {
+        icon = '🍃';
+        animClass = 'animate-fall';
+    } else if (type === 'sandstorm') {
+        icon = '🌪️';
+        animClass = 'animate-pulse'; // Simplified for sand
+    }
+
+    // Generate random particles
+    for (let i = 0; i < 20; i++) {
+        const left = Math.random() * 100;
+        const delay = Math.random() * 5;
+        const duration = 2 + Math.random() * 3;
+        particles.push(
+            <div 
+                key={i} 
+                className={`absolute top-[-20px] text-2xl pointer-events-none ${animClass}`}
+                style={{ left: `${left}%`, animationDelay: `${delay}s`, animationDuration: `${duration}s` }}
+            >
+                {icon}
+            </div>
+        );
+    }
+    
+    // Full screen tint based on weather
+    let tintClass = '';
+    if (type === 'rain') tintClass = 'bg-blue-900/10';
+    if (type === 'sandstorm') tintClass = 'bg-yellow-900/10';
+    if (type === 'wind') tintClass = 'bg-green-900/05';
+
+    return (
+        <div className={`absolute inset-0 pointer-events-none overflow-hidden z-20 ${tintClass}`}>
+            {particles}
+        </div>
+    );
+};
+
+// Helper to determine Dynamic Background based on P2 Element
+const getDynamicBackground = (element: string) => {
+    switch (element) {
+        case '烈焰': return 'from-orange-300 via-red-100 to-yellow-100'; // Volcano
+        case '潮汐': return 'from-blue-300 via-cyan-100 to-blue-50'; // Beach
+        case '森罗': 
+        case '虫': return 'from-green-300 via-emerald-100 to-lime-50'; // Forest
+        case '雷霆': return 'from-purple-300 via-yellow-100 to-gray-100'; // Stormy
+        case '冰霜': return 'from-cyan-200 via-blue-50 to-white'; // Tundra
+        case '大地': 
+        case '岩石': return 'from-amber-300 via-orange-100 to-stone-200'; // Canyon
+        case '暗影': 
+        case '幽灵': return 'from-indigo-400 via-purple-300 to-gray-900'; // Haunted
+        case '妖精': 
+        case '灵能': return 'from-pink-300 via-purple-100 to-pink-50'; // Dream
+        default: return 'from-sky-300 via-sky-100 to-green-100'; // Default Plains
+    }
+};
+
+// Helper to calculate damage with Weather Effects
+const calculateDamage = (move: Move, attackerData: AnimalData, defenderData: AnimalData, weather: WeatherType) => {
     // 1. Base Damage
     const ratio = attackerData.stats.attack / defenderData.stats.defense; 
     const random = 0.85 + Math.random() * 0.3;
@@ -53,6 +135,19 @@ const calculateDamage = (move: Move, attackerData: AnimalData, defenderData: Ani
         effectiveness = 'not_effective';
     }
 
+    // 3. Weather Modifiers (Field Effects)
+    if (weather === 'rain') {
+        if (atkType === '潮汐') multiplier *= 1.2;
+        if (atkType === '烈焰') multiplier *= 0.8;
+    } else if (weather === 'sunny') {
+        if (atkType === '烈焰') multiplier *= 1.2;
+        if (atkType === '潮汐') multiplier *= 0.8;
+    } else if (weather === 'snow') {
+        if (atkType === '冰霜') multiplier *= 1.2;
+    } else if (weather === 'wind') {
+        if (atkType === '疾风' || atkType === '飞行') multiplier *= 1.2;
+    }
+
     // 3. Crit Logic
     let isCrit = false;
     if (Math.random() < 0.15) { 
@@ -60,7 +155,7 @@ const calculateDamage = (move: Move, attackerData: AnimalData, defenderData: Ani
         isCrit = true;
     }
     
-    // Scale damage for Player HP (approx 300 max for demo)
+    // Scale damage for Player HP (approx 500 max for demo)
     let damage = Math.floor((move.power * ratio * 1.2 + 25) * random * multiplier);
     return { damage: Math.max(1, damage), isCrit, effectiveness };
 };
@@ -132,8 +227,8 @@ const FallingIcons = () => {
 // Define Card State to include base64 for saving
 type CardState = { data: AnimalData; imageUrl: string; base64: string } | null;
 
-// Initial HP reduced for quicker demos (2-3 rounds)
-const INITIAL_HP = 300;
+// Initial HP increased for longer battles
+const INITIAL_HP = 500;
 
 const App: React.FC = () => {
   // Game Flow State
@@ -145,6 +240,11 @@ const App: React.FC = () => {
   const [showGallery, setShowGallery] = useState(false);
   const [showShare, setShowShare] = useState(false);
   
+  // New States for Fun Features
+  const [weather, setWeather] = useState<WeatherType>('sunny');
+  const [banter, setBanter] = useState<BanterData | null>(null);
+  const [showBanter, setShowBanter] = useState(false);
+
   // Gallery target state (which player is selecting from gallery). 0 = View Only (Main Menu)
   const [galleryTargetId, setGalleryTargetId] = useState<number>(0);
 
@@ -215,6 +315,9 @@ const App: React.FC = () => {
     setAnimatingHurtId(null);
     setDamageOverlay(null);
     setShowShare(false);
+    setBanter(null);
+    setShowBanter(false);
+    setWeather('sunny');
     if (p1FileInputRef.current) p1FileInputRef.current.value = '';
     if (p2FileInputRef.current) p2FileInputRef.current.value = '';
   };
@@ -231,9 +334,9 @@ const App: React.FC = () => {
           const bossImageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=300&height=300&nologo=true&seed=${Math.random()}&model=flux`;
 
           // Boss image is remote, we don't save boss to local gallery usually, so base64 can be placeholder or empty for boss
-          // Boss HP set to 500 for faster demo (vs 300 player)
+          // Boss HP set to 650 for a challenge (vs 500 player)
           setP2Card({ data, imageUrl: bossImageUrl, base64: '' });
-          setPlayer2(prev => ({...prev, label: "WILD BOSS", maxHp: 500, currentHp: 500})); 
+          setPlayer2(prev => ({...prev, label: "WILD BOSS", maxHp: 650, currentHp: 650})); 
           setP2Loading('complete');
           playSfx('start'); // Notify when boss is ready
       } catch (err) {
@@ -254,6 +357,7 @@ const App: React.FC = () => {
     playSfx('select');
     const setLoading = playerId === 1 ? setP1Loading : setP2Loading;
     const setCard = playerId === 1 ? setP1Card : setP2Card;
+    const setPlayer = playerId === 1 ? setPlayer1 : setPlayer2;
     
     setLoading('analyzing');
     setError(null);
@@ -281,6 +385,14 @@ const App: React.FC = () => {
 
         // Store base64 for saving later
         setCard({ data, imageUrl: objectUrl, base64: base64String });
+        
+        // Update Player Stats (HP) to match the new card
+        setPlayer(prev => ({
+            ...prev,
+            currentHp: data.stats.hp,
+            maxHp: data.stats.hp
+        }));
+
         playSfx('start');
         setLoading('complete');
 
@@ -304,12 +416,21 @@ const App: React.FC = () => {
       // This is called when user confirms selection in Gallery
       const setCard = galleryTargetId === 1 ? setP1Card : setP2Card;
       const setLoading = galleryTargetId === 1 ? setP1Loading : setP2Loading;
+      const setPlayer = galleryTargetId === 1 ? setPlayer1 : setPlayer2;
 
       setCard({
           data: item.data,
           imageUrl: `data:image/png;base64,${item.imageBase64}`,
           base64: item.imageBase64
       });
+      
+      // Update Player Stats (HP)
+      setPlayer(prev => ({
+          ...prev,
+          currentHp: item.data.stats.hp,
+          maxHp: item.data.stats.hp
+      }));
+
       setLoading('complete');
       setShowGallery(false);
       playSfx('start');
@@ -348,20 +469,70 @@ const App: React.FC = () => {
           alert("保存失败，图片可能太大！");
       }
   };
+  
+  // Handle switching character (Resets slot to upload mode)
+  const handleSwitchCharacter = (playerId: number) => {
+      playSfx('cancel');
+      setPhase('upload'); // Go back to upload phase to wait for new card
+      
+      // Reset Actions to avoid stuck state
+      setActionsTaken([]);
+      setActivePlayerId(0);
+      
+      if (playerId === 1) {
+          setP1Card(null);
+          setP1Loading('idle');
+          if (p1FileInputRef.current) p1FileInputRef.current.value = '';
+      } else {
+          setP2Card(null);
+          setP2Loading('idle');
+          if (p2FileInputRef.current) p2FileInputRef.current.value = '';
+      }
+  };
 
 
   useEffect(() => {
     if (phase === 'upload' && p1Card && p2Card) {
-        startCombatPhase();
+        // If coming from a character switch in later rounds, we might need to adjust logic
+        // But startCombatPhase handles round 1 check for banter
+        // We pass current 'round' to it
+        startCombatPhase(round);
     }
   }, [p1Card, p2Card, phase]);
 
-  const startCombatPhase = () => {
+  const startCombatPhase = async (roundNum = round) => {
     if (!p1Card || !p2Card) return;
+
+    // Trigger Banter Generation Async (Fire and forget)
+    // Only generate banter on Round 1 to avoid repetitive noise on switch
+    if (roundNum === 1) {
+        generateBattleBanter(p1Card.data, p2Card.data).then(banterText => {
+            setBanter(banterText);
+            setShowBanter(true);
+            setTimeout(() => setShowBanter(false), 5000);
+        });
+    }
+    
+    // Random Weather Change
+    if (Math.random() > 0.4) {
+        const weathers: WeatherType[] = ['rain', 'snow', 'wind', 'sandstorm', 'sunny'];
+        const newWeather = weathers[Math.floor(Math.random() * weathers.length)];
+        setWeather(newWeather);
+        
+        let weatherMsg = '';
+        switch(newWeather) {
+            case 'rain': weatherMsg = '🌧️ 突然下起了大雨！(水系↑ 火系↓)'; break;
+            case 'snow': weatherMsg = '❄️ 天空飘起了雪花！(冰系↑)'; break;
+            case 'wind': weatherMsg = '🍃 刮起了大风！(风系/飞行↑)'; break;
+            case 'sandstorm': weatherMsg = '🌪️ 扬起了沙尘！'; break;
+            case 'sunny': weatherMsg = '☀️ 天气放晴了！(火系↑ 水系↓)'; break;
+        }
+        addLog(weatherMsg);
+    }
 
     setPhase('battle_turn');
     playSfx('start');
-    addLog(`--- 第 ${round} 回合开始！ ---`);
+    addLog(`--- 第 ${roundNum} 回合开始！ ---`);
     
     if (p1Card.data.stats.speed >= p2Card.data.stats.speed) {
         setActivePlayerId(1);
@@ -399,7 +570,7 @@ const App: React.FC = () => {
         setDamageOverlay({ targetId: defenderId, text: 'MISS', type: 'miss' });
         setTimeout(() => setDamageOverlay(null), 1000);
     } else {
-        const { damage, isCrit, effectiveness } = calculateDamage(move, attackerCard.data, defenderCard.data);
+        const { damage, isCrit, effectiveness } = calculateDamage(move, attackerCard.data, defenderCard.data, weather);
         const newHp = Math.max(0, defenderPlayer.currentHp - damage);
         
         if (isCrit) playSfx('crit');
@@ -449,11 +620,18 @@ const App: React.FC = () => {
   };
 
   const endRound = () => {
-    setRound(prev => prev + 1);
+    // FIX: Calculate next round explicitly to avoid stale state in logs/start logic
+    const nextRound = round + 1;
+    setRound(nextRound);
+    
     addLog(`--- 第 ${round} 回合结束。准备下一轮！ ---`);
     playSfx('switch');
-    resetRound();
-    setPhase('upload');
+    // We don't fully reset round (don't clear cards), just actions
+    setActionsTaken([]);
+    setActivePlayerId(0);
+    
+    // Pass nextRound explicitly to ensure the next phase uses the correct number
+    startCombatPhase(nextRound);
   };
 
   const renderUploadSlot = (playerId: number) => {
@@ -508,7 +686,7 @@ const App: React.FC = () => {
                     </div>
                     <div>
                         <p className="font-cute text-amber-800 text-xl font-black">
-                            {playerId === 1 ? '上传你的勇士' : '上传对手'}
+                            {playerId === 1 ? 'Player 1' : 'Player 2'}
                         </p>
                         
                         <div className="flex flex-col gap-2 mt-3">
@@ -538,6 +716,10 @@ const App: React.FC = () => {
         </div>
     );
   };
+
+  // --- BACKGROUND CLASS LOGIC ---
+  const isBattleMode = (phase === 'battle_turn' || phase === 'gameover') && !!p2Card;
+  const battleGradient = p2Card ? getDynamicBackground(p2Card.data.element) : '';
 
   // --- RENDER START PAGE ---
   if (phase === 'setup') {
@@ -573,20 +755,23 @@ const App: React.FC = () => {
             {/* Main Content */}
             <div className="relative z-10 flex flex-col items-center space-y-10">
                 
-                {/* TITLE - Updated for Sharpness & Cute Style */}
+                {/* TITLE - Updated for Sharpness & Cute Style & More Decorations */}
                 <div className="text-center flex flex-col items-center gap-1 cursor-default relative">
-                     {/* Sparkles */}
-                     <div className="absolute -top-8 -left-8 text-4xl animate-bounce-slow delay-0 filter drop-shadow-sm">✨</div>
-                     <div className="absolute top-12 -right-12 text-4xl animate-bounce-slow delay-100 filter drop-shadow-sm">✨</div>
+                     {/* Floating Decorations */}
+                     <div className="absolute -top-12 -left-12 text-6xl animate-bounce-slow delay-0 filter drop-shadow-sm rotate-12">🌸</div>
+                     <div className="absolute top-16 -right-16 text-5xl animate-bounce-slow delay-700 filter drop-shadow-sm -rotate-12">⭐</div>
+                     <div className="absolute -bottom-8 -left-20 text-5xl animate-bounce-slow delay-500 filter drop-shadow-sm rotate-45">🐾</div>
+                     <div className="absolute -top-4 right-1/4 text-4xl animate-pulse delay-100 text-yellow-300">✨</div>
+                     <div className="absolute bottom-12 left-0 text-3xl animate-pulse delay-300 text-pink-300">💖</div>
 
-                     <h2 className="text-5xl md:text-7xl font-black text-yellow-100 font-cute tracking-widest transform -rotate-3"
+                     <h2 className="text-5xl md:text-7xl font-black text-yellow-100 font-cute tracking-widest transform -rotate-3 z-10"
                          style={{ 
                             WebkitTextStroke: '2px #8d6e63',
                             textShadow: '3px 3px 0px #8d6e63'
                          }}>
                         舒舒服服
                      </h2>
-                     <h1 className="text-8xl md:text-[9rem] font-black text-white font-cute leading-none tracking-wide animate-wiggle transform rotate-2"
+                     <h1 className="text-8xl md:text-[9rem] font-black text-white font-cute leading-none tracking-wide animate-wiggle transform rotate-2 z-10"
                          style={{ 
                             WebkitTextStroke: '5px #5d4037', // Darker brown outline
                             textShadow: '6px 6px 0px #3e2723, 0px 8px 15px rgba(0,0,0,0.15)', // Hard 3D shadow + soft shadow
@@ -657,7 +842,8 @@ const App: React.FC = () => {
             <GalleryModal 
                 isOpen={showGallery} 
                 onClose={() => setShowGallery(false)} 
-                onSelect={handleSelectFromGallery} 
+                onSelect={handleSelectFromGallery}
+                enableSelection={galleryTargetId !== 0}
             />
         </div>
       );
@@ -666,7 +852,16 @@ const App: React.FC = () => {
   // --- RENDER BATTLE PAGE ---
   return (
     <div className="min-h-screen relative flex flex-col items-center p-4 overflow-hidden bg-gradient-to-b from-sky-300 via-sky-100 to-green-100">
-      {/* BACKGROUND LAYERS (Z-0) */}
+      
+      {/* Dynamic Battle Background Overlay (Fade in/out) */}
+      <div 
+          className={`absolute inset-0 transition-opacity duration-1000 ease-in-out z-0 bg-gradient-to-b ${battleGradient} ${isBattleMode ? 'opacity-100' : 'opacity-0'}`}
+      ></div>
+
+      {/* Weather Overlay */}
+      <WeatherOverlay type={weather} />
+
+      {/* BACKGROUND LAYERS (Z-0) - Decorations */}
       <div className="absolute inset-0 pointer-events-none z-0">
             <div className="absolute top-10 left-10 opacity-60"><Cloud className="scale-150" delay="0s" /></div>
             <div className="absolute top-24 right-20 opacity-40"><Cloud className="scale-100" delay="5s" /></div>
@@ -684,6 +879,11 @@ const App: React.FC = () => {
             <Flower className="bottom-32 left-32" />
             <Flower className="bottom-24 right-40 text-pink-200" color="bg-pink-100" />
       </div>
+      
+      {/* Second Overlay to Tint Hills (ensures hills change color too) */}
+      <div 
+          className={`absolute inset-0 transition-opacity duration-1000 ease-in-out z-0 bg-gradient-to-b ${battleGradient} ${isBattleMode ? 'opacity-90' : 'opacity-0'}`}
+      ></div>
 
       {/* Game Header */}
       <header className="w-full max-w-6xl flex justify-between items-center bg-white/80 backdrop-blur-sm px-6 py-3 rounded-full shadow-lg border-2 border-white mb-8 z-10">
@@ -717,15 +917,18 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Battle Status HUD */}
+      {/* Battle Status HUD (Sticky top-4, z-40) */}
       <div className="w-full max-w-5xl grid grid-cols-[1fr_auto_1fr] gap-4 md:gap-12 mb-8 sticky top-4 z-40">
             <div className="bg-white/90 backdrop-blur-md p-3 rounded-2xl shadow-lg border-4 border-white transform rotate-1">
                 <HealthBar current={player1.currentHp} max={player1.maxHp} />
             </div>
             
             <div className="flex flex-col items-center justify-center">
-                <div className="bg-amber-400 text-white font-black text-xl px-4 py-2 rounded-full shadow-md border-4 border-amber-200">
-                    R-{round}
+                <div className="bg-amber-400 text-white font-black text-xl px-4 py-2 rounded-full shadow-md border-4 border-amber-200 flex items-center gap-2">
+                    <span>R-{round}</span>
+                    <span className="text-sm bg-white/30 px-1 rounded">
+                        {weather === 'rain' ? '🌧️' : weather === 'snow' ? '❄️' : weather === 'wind' ? '🍃' : weather === 'sandstorm' ? '🌪️' : '☀️'}
+                    </span>
                 </div>
             </div>
 
@@ -734,12 +937,17 @@ const App: React.FC = () => {
             </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-8 items-start justify-center flex-1 px-4 z-10">
+      {/* Main Content Area - BUG FIX 2: Removed z-10 from here to let children control Z-index relative to HUD */}
+      <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-8 items-start justify-center flex-1 px-4 relative">
             
-            {/* Player 1 Zone */}
-            <div className="flex-1 w-full flex flex-col items-center space-y-4 order-2 lg:order-1">
-                <div className="w-full max-w-md flex justify-center">
+            {/* Player 1 Zone - BUG FIX 2: Conditionally z-50 to pop above HUD when Banter shows */}
+            <div className={`flex-1 w-full flex flex-col items-center space-y-4 order-2 lg:order-1 relative transition-all ${showBanter ? 'z-50' : 'z-10'}`}>
+                <div className="w-full max-w-md flex flex-col items-center justify-center relative gap-4">
+                    {/* Banter Speech Bubble */}
+                    {showBanter && banter && phase === 'battle_turn' && (
+                        <SpeechBubble text={banter.p1Line} />
+                    )}
+
                     {phase === 'upload' ? (
                         renderUploadSlot(1)
                     ) : (
@@ -758,6 +966,17 @@ const App: React.FC = () => {
                                 />
                             </div>
                         )
+                    )}
+
+                    {/* Switch Character Button - P1 */}
+                    {(phase === 'battle_turn' || phase === 'round_end') && p1Card && (
+                        <button 
+                            onClick={() => handleSwitchCharacter(1)}
+                            className="text-xs md:text-sm font-bold bg-white/50 hover:bg-white text-amber-800 px-3 py-1.5 rounded-full border border-amber-200 shadow-sm backdrop-blur-sm transition-all flex items-center gap-1 group"
+                        >
+                            <span className="group-hover:rotate-180 transition-transform duration-500">🔄</span> 
+                            更换角色 (P1)
+                        </button>
                     )}
                 </div>
             </div>
@@ -803,9 +1022,14 @@ const App: React.FC = () => {
                 )}
             </div>
 
-            {/* Player 2 Zone */}
-            <div className="flex-1 w-full flex flex-col items-center space-y-4 order-3">
-                 <div className="w-full max-w-md flex justify-center">
+            {/* Player 2 Zone - BUG FIX 2: Conditionally z-50 to pop above HUD when Banter shows */}
+            <div className={`flex-1 w-full flex flex-col items-center space-y-4 order-3 relative transition-all ${showBanter ? 'z-50' : 'z-10'}`}>
+                 <div className="w-full max-w-md flex flex-col items-center justify-center relative gap-4">
+                    {/* Banter Speech Bubble */}
+                    {showBanter && banter && phase === 'battle_turn' && (
+                        <SpeechBubble text={banter.p2Line} isRight={true} />
+                    )}
+
                     {phase === 'upload' ? (
                         renderUploadSlot(2)
                     ) : (
@@ -824,6 +1048,18 @@ const App: React.FC = () => {
                                 />
                             </div>
                         )
+                    )}
+
+                    {/* Switch Character Button - P2 (Only in PVP or user wants to regen boss in PVE?) */}
+                    {/* In PVE, let user switch P2 (Boss) if they want a new random challenge */}
+                    {(phase === 'battle_turn' || phase === 'round_end') && p2Card && (
+                        <button 
+                            onClick={() => handleSwitchCharacter(2)}
+                            className="text-xs md:text-sm font-bold bg-white/50 hover:bg-white text-amber-800 px-3 py-1.5 rounded-full border border-amber-200 shadow-sm backdrop-blur-sm transition-all flex items-center gap-1 group"
+                        >
+                            <span className="group-hover:rotate-180 transition-transform duration-500">🔄</span> 
+                            {gameMode === 'pve' ? '召唤新BOSS' : '更换角色 (P2)'}
+                        </button>
                     )}
                 </div>
             </div>
@@ -849,6 +1085,7 @@ const App: React.FC = () => {
         isOpen={showGallery} 
         onClose={() => setShowGallery(false)} 
         onSelect={handleSelectFromGallery} 
+        enableSelection={galleryTargetId !== 0}
       />
 
       {/* Share Modal */}

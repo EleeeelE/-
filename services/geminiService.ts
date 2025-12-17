@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnimalData } from "../types";
+import { AnimalData, BanterData } from "../types";
 
 // --- LOCAL MODEL SETUP (COURSE REQUIREMENT) ---
 // Access the global MobileNet loaded via script tag in index.html
@@ -121,7 +121,7 @@ export async function generateAnimalCard(base64Image: string, mimeType: string):
                 Rules:
                 1. Language: SIMPLIFIED CHINESE (简体中文).
                 2. Be creative! Interpret the keywords loosely. If it says "keyboard", make a "Cyber Hacker Beast".
-                3. Stats sum ~300.
+                3. Stats sum ~800 (HP around 500).
                 4. MUST generate EXACTLY 3 unique moves.
                 5. Return valid JSON only.
             `,
@@ -148,7 +148,7 @@ export async function generateAnimalCard(base64Image: string, mimeType: string):
             title: "神秘的像素兽",
             element: "一般",
             flavorText: "本地模型甚至无法识别它，这一定是某种高维生物。",
-            stats: { hp: 300, attack: 50, defense: 50, speed: 50 },
+            stats: { hp: 500, attack: 80, defense: 80, speed: 70 },
             moves: [
                 { name: "神秘撞击", description: "造成少量伤害", type: "物理", power: 40, accuracy: 100, visual_prompt: "mystery hit" },
                 { name: "数据错误", description: "对手感到困惑", type: "变化", power: 0, accuracy: 100, visual_prompt: "glitch" },
@@ -163,7 +163,7 @@ export async function generateRandomBoss(): Promise<AnimalData> {
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: "Generate a random, powerful RPG Boss animal. Simplified Chinese. MUST have 3 moves.",
+            contents: "Generate a random, powerful RPG Boss animal. Simplified Chinese. MUST have 3 moves. Stats sum ~850 (HP ~600).",
             config: {
                 responseMimeType: "application/json",
                 responseSchema: animalSchema,
@@ -179,5 +179,40 @@ export async function generateRandomBoss(): Promise<AnimalData> {
     } catch (e) {
         console.error(e);
         throw e;
+    }
+}
+
+// New: Generate Banter
+export async function generateBattleBanter(p1: AnimalData, p2: AnimalData): Promise<BanterData> {
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `
+                Generate pre-battle trash talk (banter) between two cute RPG characters.
+                Character 1: ${p1.title} (${p1.species}), personality: ${p1.flavorText}
+                Character 2: ${p2.title} (${p2.species}), personality: ${p2.flavorText}
+                
+                Rules:
+                1. Language: Simplified Chinese.
+                2. Max 20 words per line.
+                3. Funny, cute, slightly aggressive but friendly.
+                4. Return JSON: { "p1Line": "string", "p2Line": "string" }
+            `,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        p1Line: { type: Type.STRING },
+                        p2Line: { type: Type.STRING }
+                    }
+                }
+            }
+        });
+        const jsonText = response.text;
+        if (!jsonText) return { p1Line: "来战！", p2Line: "谁怕谁！" };
+        return JSON.parse(jsonText) as BanterData;
+    } catch (e) {
+        return { p1Line: "放马过来！", p2Line: "我会全力以赴！" };
     }
 }
